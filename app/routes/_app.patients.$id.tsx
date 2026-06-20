@@ -3,7 +3,7 @@ import { Form, Link, useLoaderData, useSearchParams } from "@remix-run/react";
 import { useState } from "react";
 import db from "~/lib/db.server";
 import { requireCap, requireStaff } from "~/lib/session.server";
-import { newId } from "~/lib/ids.server";
+import { newId, visitNo } from "~/lib/ids.server";
 import { notify } from "~/lib/events.server";
 import { writeAudit } from "~/lib/audit.server";
 import { can } from "~/lib/rbac.server";
@@ -36,8 +36,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const vitals = encIds.length ? db.prepare(`SELECT * FROM vitals WHERE encounter_id IN ${inClause} ORDER BY captured_at DESC LIMIT 12`).all(...encIds) as any[] : [];
   const departments = db.prepare("SELECT id, name, category FROM departments WHERE active=1 ORDER BY name").all() as any[];
   const docs = db.prepare("SELECT id, full_name, department_id FROM staff WHERE role IN ('doctor','department_head') ORDER BY full_name").all() as any[];
-  return json({ p, encs, labs, rads, rx, notes, refs, invoices, vitals, departments, docs,
-    canEdit: can(staff.role, "edit_emr"), canRefer: can(staff.role, "manage_referrals"), me: staff });
+  const labCatalog = db.prepare("SELECT id, code, name, category FROM lab_catalog ORDER BY category, name").all() as any[];
+  return json({ p, encs, labs, rads, rx, notes, refs, invoices, vitals, departments, docs, labCatalog,
+    canEdit: can(staff.role, "edit_emr"), canRefer: can(staff.role, "manage_referrals"), canOrder: can(staff.role, "order_clinical"), me: staff });
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -64,6 +65,49 @@ export async function action({ request, params }: ActionFunctionArgs) {
     writeAudit(staff, "referral.create", "referral", id);
     return redirect(back);
   }
+
+  // Ensure the patient has an open encounter to attach orders to (creates one if needed).
+  function openEncounter(): string {
+    const ex = db.prepare("SELECT id FROM encounters WHERE patient_id=? AND status IN ('open','in_progress','admitted') ORDER BY created_at DESC LIMIT 1").get(params.id) as any;
+    if (ex) return ex.id;
+    const id = newId();
+    db.prepare("INSERT INTO encounters (id, visit_no, patient_id, type, department_id, attending_id, status, chief_complaint) VALUES (?,?,?,'outpatient',?,?,'in_progress','Consultation')")
+      .run(id, visitNo(), params.id, staff.departmentId, staff.id);
+    return id;
+  }
+
+  if (intent === "order_lab") {
+    const codes = f.getAll("codes").map(String).filter(Boolean);
+    if (codes.length) {
+      const enc = openEncounter();
+      const lab = db.prepare("SELECT id FROM departments WHERE kind='lab'").get() as any;
+      const names = db.prepare(`SELECT name FROM lab_catalog WHERE code IN (${codes.map(() => "?").join(",")})`).all(...codes) as any[];
+      const oid = newId();
+      db.prepare("INSERT INTO orders (id, encounter_id, kind, name, priority, status, ordered_by, target_department_id, notes) VALUES (?,?,?,?,?,'ordered',?,?,?)")
+        .run(oid, enc, "lab", codes.length > 3 ? `Lab panel (${codes.length})` : names.map((x) => x.name).join(", "), String(f.get("priority") || "routine"), staff.id, lab?.id, JSON.stringify(codes));
+      notify({ scope: "lab", targetRole: "lab", severity: "info", title: "New lab order", body: `${names.length} tests requested`, link: "/lab", entity: "order", entityId: oid });
+      writeAudit(staff, "order.lab", "order", oid, `${codes.length} tests`);
+    }
+    return redirect(back);
+  }
+  if (intent === "order_imaging") {
+    const enc = openEncounter();
+    const rad = db.prepare("SELECT id FROM departments WHERE kind='radiology'").get() as any;
+    const oid = newId();
+    const modality = String(f.get("modality") || "X-Ray"), part = String(f.get("body_part") || "Chest");
+    db.prepare("INSERT INTO orders (id, encounter_id, kind, name, priority, status, ordered_by, target_department_id) VALUES (?,?,?,?,?,'in_progress',?,?)")
+      .run(oid, enc, "radiology", `${modality} ${part}`, String(f.get("priority") || "routine"), staff.id, rad?.id);
+    db.prepare("INSERT INTO rad_studies (id, order_id, modality, body_part, status, image_seed) VALUES (?,?,?,?,'scheduled',?)").run(newId(), oid, modality, part, oid.slice(-6));
+    notify({ scope: "global", targetRole: "radiology", severity: "info", title: "New imaging request", body: `${modality} ${part}`, link: "/radiology", entity: "order", entityId: oid });
+    writeAudit(staff, "order.imaging", "order", oid, `${modality} ${part}`);
+    return redirect(back);
+  }
+  if (intent === "appointment") {
+    db.prepare("INSERT INTO appointments (id, patient_id, staff_id, department_id, starts_at, duration_min, status, reason) VALUES (?,?,?,?,?,?,'booked',?)")
+      .run(newId(), params.id, staff.id, staff.departmentId, String(f.get("starts_at")), Number(f.get("duration")) || 20, String(f.get("reason") || "Follow-up"));
+    writeAudit(staff, "appointment.book", "patient", String(params.id));
+    return redirect(back);
+  }
   return redirect(back);
 }
 
@@ -86,6 +130,9 @@ export default function PatientRecord() {
   const chronic = jsonArr(p.chronic_conditions);
   const openEnc = d.encs.find((e: any) => ["admitted", "in_progress", "open"].includes(e.status));
   const [refOpen, setRefOpen] = useState(false);
+  const [orderLab, setOrderLab] = useState(false);
+  const [orderImg, setOrderImg] = useState(false);
+  const [apptOpen, setApptOpen] = useState(false);
 
   return (
     <div className="stack">
@@ -109,7 +156,10 @@ export default function PatientRecord() {
               <span className="kicker">Allergies</span>{allergies.map((a) => <span key={a} className="badge b-danger">{a}</span>)}
             </div>}
           </div>
-          {d.canRefer && <Button variant="primary" icon="share" onClick={() => setRefOpen(true)}>Refer</Button>}
+          <div className="cluster">
+            {d.canOrder && <Button icon="calendar" onClick={() => setApptOpen(true)}>Book appointment</Button>}
+            {d.canRefer && <Button variant="primary" icon="share" onClick={() => setRefOpen(true)}>Refer</Button>}
+          </div>
         </div>
       </Card>
 
@@ -154,6 +204,12 @@ export default function PatientRecord() {
 
         {tab === "results" && (
           <div className="card-body stack">
+            {d.canOrder && (
+              <div className="cluster">
+                <Button variant="primary" icon="flask" onClick={() => setOrderLab(true)}>Order lab tests</Button>
+                <Button icon="scan" onClick={() => setOrderImg(true)}>Order imaging</Button>
+              </div>
+            )}
             <Card><CardHead title="Laboratory" /><div className="tbl-wrap"><table className="tbl"><thead><tr><th>Test</th><th>Analyte</th><th className="num">Value</th><th>Reference</th><th>Flag</th><th>Status</th></tr></thead>
               <tbody>{d.labs.length === 0 ? <tr><td colSpan={6}><span className="muted">No lab results</span></td></tr> : d.labs.map((l: any, i: number) => (
                 <tr key={i}><td>{l.name}</td><td>{l.analyte ?? "—"}</td><td className={`num ${FLAG_CLASS[l.flag] ?? ""}`}>{l.value ?? "—"} {l.unit}</td><td className="mono dim">{l.ref_range}</td>
@@ -225,7 +281,71 @@ export default function PatientRecord() {
       </Card>
 
       {refOpen && <ReferralModal patient={p} encId={openEnc?.id} departments={d.departments} docs={d.docs} onClose={() => setRefOpen(false)} />}
+      {orderLab && <OrderLabModal catalog={d.labCatalog} onClose={() => setOrderLab(false)} />}
+      {orderImg && <OrderImagingModal onClose={() => setOrderImg(false)} />}
+      {apptOpen && <ApptModal onClose={() => setApptOpen(false)} />}
     </div>
+  );
+}
+
+function OrderLabModal({ catalog, onClose }: { catalog: any[]; onClose: () => void }) {
+  const groups: Array<[string, any[]]> = [];
+  for (const c of catalog) { let g = groups.find((x) => x[0] === c.category); if (!g) { g = [c.category, []]; groups.push(g); } g[1].push(c); }
+  return (
+    <Modal title="Order lab tests" wide onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" form="ol" type="submit">Send order to lab</Button></>}>
+      <Form id="ol" method="post" onSubmit={() => setTimeout(onClose, 50)}>
+        <input type="hidden" name="intent" value="order_lab" />
+        <input type="hidden" name="tab" value="results" />
+        <Field label="Priority"><select name="priority"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="stat">STAT</option></select></Field>
+        {groups.map(([cat, items]) => (
+          <div key={cat} style={{ marginBottom: 14 }}>
+            <div className="kicker" style={{ marginBottom: 6 }}>{cat}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              {items.map((it: any) => (
+                <label key={it.id} className="cluster" style={{ gap: 8, fontSize: 13, padding: "5px 8px", border: "1px solid rgb(var(--line))", borderRadius: 8, cursor: "pointer" }}>
+                  <input type="checkbox" name="codes" value={it.code} style={{ width: "auto" }} />{it.name}
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+      </Form>
+    </Modal>
+  );
+}
+
+function OrderImagingModal({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal title="Order imaging" onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" form="oi" type="submit">Request study</Button></>}>
+      <Form id="oi" method="post" onSubmit={() => setTimeout(onClose, 50)}>
+        <input type="hidden" name="intent" value="order_imaging" />
+        <input type="hidden" name="tab" value="results" />
+        <div className="form-grid">
+          <Field label="Modality"><select name="modality">{["X-Ray", "Ultrasound", "CT", "MRI", "Mammography"].map((m) => <option key={m}>{m}</option>)}</select></Field>
+          <Field label="Priority"><select name="priority"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="stat">STAT</option></select></Field>
+        </div>
+        <Field label="Body part / region" required><input name="body_part" placeholder="e.g. Chest, Head, Abdomen" required /></Field>
+      </Form>
+    </Modal>
+  );
+}
+
+function ApptModal({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal title="Book appointment" onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" form="ap" type="submit">Book</Button></>}>
+      <Form id="ap" method="post" onSubmit={() => setTimeout(onClose, 50)}>
+        <input type="hidden" name="intent" value="appointment" />
+        <input type="hidden" name="tab" value="encounters" />
+        <div className="form-grid">
+          <Field label="Date & time" required><input type="datetime-local" name="starts_at" required /></Field>
+          <Field label="Duration (min)"><input type="number" name="duration" defaultValue={20} /></Field>
+        </div>
+        <Field label="Reason"><input name="reason" placeholder="Follow-up, review results…" /></Field>
+      </Form>
+    </Modal>
   );
 }
 

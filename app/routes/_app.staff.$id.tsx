@@ -2,7 +2,7 @@ import { json, type LoaderFunctionArgs, type MetaFunction } from "@remix-run/nod
 import { Link, useLoaderData, useSearchParams } from "@remix-run/react";
 import db from "~/lib/db.server";
 import { requireStaff } from "~/lib/session.server";
-import { Card, CardHead, Badge, Avatar, EmptyState } from "~/components/ui";
+import { Card, CardHead, Badge, Avatar, EmptyState, Stars } from "~/components/ui";
 import { Icon } from "~/components/Icon";
 import { jsonArr, dateShort, dateTime, money, STATUS_BADGE } from "~/lib/format";
 
@@ -50,9 +50,9 @@ export default function StaffProfile() {
 
       <Card>
         <div className="profile-head">
-          <Avatar name={s.full_name} color={s.photo_color} size={76} />
+          <Avatar name={s.full_name} color={s.photo_color} src={s.photo_url} size={84} />
           <div className="profile-id" style={{ flex: 1 }}>
-            <div className="cluster"><h1>{s.full_name}</h1>{s.specialty && <Badge tone="b-primary">{s.specialty}</Badge>}{s.status === "active" && <Badge tone="b-success">active</Badge>}</div>
+            <div className="cluster"><h1>{s.full_name}</h1>{s.specialty && <Badge tone="b-primary">{s.specialty}</Badge>}<Stars rating={s.rating ?? 4.7} /></div>
             <div className="meta">
               <span>{s.title}</span><span className="tag">{s.dept ?? "—"}</span>
               {s.subspecialty && <span className="tag">{s.subspecialty}</span>}

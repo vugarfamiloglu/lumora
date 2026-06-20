@@ -22,6 +22,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     lab: n(`SELECT COUNT(*) c FROM orders WHERE kind='lab' AND status IN ('ordered','collected','in_progress')`),
     referrals: n(`SELECT COUNT(*) c FROM referrals WHERE status='pending'`),
     messages: n(`SELECT COUNT(*) c FROM thread_members WHERE staff_id=? AND read_at IS NULL`, staff.id),
+    myResults: n(`SELECT COUNT(*) c FROM orders WHERE ordered_by=? AND kind='lab' AND status IN ('resulted','validated')`, staff.id),
   };
 
   const notifications = db.prepare(`SELECT id, severity, title, body, link, created_at FROM notifications

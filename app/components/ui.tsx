@@ -30,8 +30,9 @@ export function Badge({ tone = "b-muted", children }: { tone?: string; children:
   return <span className={`badge ${tone}`}>{children}</span>;
 }
 
-export function Avatar({ name, color, size = 40, src }: { name: string; color?: string; size?: number; src?: string }) {
-  if (src) return <img className="avatar" src={src} alt={name} style={{ width: size, height: size }} />;
+export function Avatar({ name, color, size = 40, src }: { name: string; color?: string; size?: number; src?: string | null }) {
+  const [err, setErr] = useState(false);
+  if (src && !err) return <img className="avatar" src={src} alt={name} style={{ width: size, height: size, objectFit: "cover", background: "rgb(var(--surface-2))" }} onError={() => setErr(true)} />;
   return (
     <span className="avatar" style={{ width: size, height: size, background: color ?? "#6366f1", fontSize: size * 0.36 }}>
       {initials(name)}

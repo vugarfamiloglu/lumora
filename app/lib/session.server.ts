@@ -28,15 +28,15 @@ const storage = createCookieSessionStorage({
 
 export interface Staff {
   id: string; email: string; fullName: string; role: string; title: string | null;
-  departmentId: string | null; departmentName: string | null; specialty: string | null; photoColor: string;
+  departmentId: string | null; departmentName: string | null; specialty: string | null; photoColor: string; photoUrl: string | null;
 }
 
 function loadStaff(id: string): Staff | null {
-  const r = db.prepare(`SELECT s.id, s.email, s.full_name, s.role, s.title, s.department_id, s.specialty, s.photo_color, d.name AS dept_name
+  const r = db.prepare(`SELECT s.id, s.email, s.full_name, s.role, s.title, s.department_id, s.specialty, s.photo_color, s.photo_url, d.name AS dept_name
     FROM staff s LEFT JOIN departments d ON d.id = s.department_id WHERE s.id = ? AND s.status = 'active'`).get(id) as any;
   if (!r) return null;
   return { id: r.id, email: r.email, fullName: r.full_name, role: r.role, title: r.title,
-    departmentId: r.department_id, departmentName: r.dept_name, specialty: r.specialty, photoColor: r.photo_color };
+    departmentId: r.department_id, departmentName: r.dept_name, specialty: r.specialty, photoColor: r.photo_color, photoUrl: r.photo_url ?? null };
 }
 
 export async function login(email: string, password: string): Promise<Staff | null> {

@@ -17,8 +17,19 @@ animated ECG traces, NEWS2 scores and automatic alarms.
 - **Emergency department** — triage board with Red / Yellow / Green zones, arrival
   registration (including unidentified / anonymous patients with a provisional MRN), and
   re-triage.
+- **30 clinical departments**, each led by a head and staffed by a specialist team —
+  157 physicians in total with detailed, photo-illustrated profiles (qualifications,
+  experience, languages, clinic schedule, patient panel and ratings).
+- **End-to-end clinical workflow** — a physician examines a patient, orders lab tests and
+  imaging from the chart, the laboratory processes and validates them, and the results land
+  on the ordering doctor's **personal workspace**; the doctor can present a professional,
+  printable results report to the patient, order more tests, and book the next appointment.
+- **Cashier (front office)** — charge consultations, lab panels, procedures and packages
+  from a service catalog, take payment by cash / card / insurance, and issue a printable
+  patient **receipt**. 48-analyte lab catalog and 37-line service catalog.
 - **Electronic Medical Record** — per-patient record with encounters, lab & imaging results
-  (flagged), medications, clinical notes, referrals and billing in one tabbed chart.
+  (flagged), medications, clinical notes, referrals and billing in one tabbed chart, with
+  in-chart order entry and appointment booking.
 - **Inter-department referrals** — consultation requests routed between departments and
   specialists, with accept / decline / complete workflows and live notifications.
 - **Secure messaging** — direct clinical conversations between staff and care teams.

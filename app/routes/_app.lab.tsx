@@ -4,6 +4,7 @@ import db from "~/lib/db.server";
 import { requireCap } from "~/lib/session.server";
 import { writeAudit } from "~/lib/audit.server";
 import { notify } from "~/lib/events.server";
+import { newId } from "~/lib/ids.server";
 import { can } from "~/lib/rbac.server";
 import { PageHeader, Card, Badge, Button, Kpi, EmptyState } from "~/components/ui";
 import { dateTime, FLAG_CLASS, STATUS_BADGE } from "~/lib/format";
@@ -29,17 +30,41 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return json({ orders, resultsBy, status, k, canResult: can(staff.role, "result_lab") });
 }
 
+function generateResults(orderId: string) {
+  const existing = (db.prepare("SELECT COUNT(*) c FROM lab_results WHERE order_id=?").get(orderId) as any).c;
+  if (existing > 0) return;
+  const order = db.prepare("SELECT notes FROM orders WHERE id=?").get(orderId) as any;
+  let codes: string[] = [];
+  try { codes = JSON.parse(order?.notes ?? "[]"); } catch { codes = []; }
+  for (const code of codes) {
+    const cat = db.prepare("SELECT * FROM lab_catalog WHERE code=?").get(code) as any;
+    if (!cat) continue;
+    const n = parseInt(orderId.slice(-3), 36) + code.length;
+    let value: number, flag = "normal";
+    if (n % 9 === 0) { value = +(cat.ref_high * 1.4).toFixed(2); flag = "high"; }
+    else if (n % 13 === 0) { value = +(cat.ref_low * 0.6).toFixed(2); flag = "low"; }
+    else value = +(cat.ref_low + ((n % 100) / 100) * (cat.ref_high - cat.ref_low)).toFixed(2);
+    db.prepare("INSERT INTO lab_results (id, order_id, analyte, value, unit, ref_range, flag, stage) VALUES (?,?,?,?,?,?,?,'tech_validated')")
+      .run(newId(), orderId, cat.name, String(value), cat.unit, `${cat.ref_low}–${cat.ref_high}`, flag);
+  }
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   const staff = await requireCap(request, "result_lab");
   const f = await request.formData();
   const id = String(f.get("id"));
   const next = String(f.get("status"));
+  if (next === "resulted") generateResults(id);
   db.prepare("UPDATE orders SET status=?, resulted_at=CASE WHEN ?='resulted' THEN datetime('now') ELSE resulted_at END WHERE id=?").run(next, next, id);
-  if (next === "validated") db.prepare("UPDATE lab_results SET stage='validated', validated_by=? WHERE order_id=?").run(staff.id, id);
+
+  const order = db.prepare("SELECT ordered_by FROM orders WHERE id=?").get(id) as any;
+  if (next === "validated") {
+    db.prepare("UPDATE lab_results SET stage='validated', validated_by=? WHERE order_id=?").run(staff.id, id);
+    if (order?.ordered_by) notify({ scope: "global", targetStaffId: order.ordered_by, severity: "info", title: "Lab results ready", body: "Validated results are on your workspace.", link: "/workspace", entity: "order", entityId: id });
+  }
   if (next === "resulted") {
-    // generate plausible results for analytes that have none yet
     const crit = db.prepare("SELECT COUNT(*) c FROM lab_results WHERE order_id=? AND flag='critical'").get(id) as any;
-    if (crit.c > 0) notify({ scope: "lab", targetRole: "doctor", severity: "critical", title: "Critical result available", body: "A critical lab value requires review.", link: "/lab", entity: "order", entityId: id });
+    if (crit.c > 0) notify({ scope: "lab", targetStaffId: order?.ordered_by, severity: "critical", title: "Critical result available", body: "A critical lab value requires review.", link: "/lab", entity: "order", entityId: id });
   }
   writeAudit(staff, "lab.update", "order", id, next);
   return json({ ok: true });

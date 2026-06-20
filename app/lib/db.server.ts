@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS staff (
   phone TEXT,
   gender TEXT,
   photo_color TEXT DEFAULT '#6366f1',
+  photo_url TEXT,
+  rating REAL DEFAULT 4.7,
   -- professional dossier
   license_no TEXT,
   license_expiry TEXT,
@@ -264,6 +266,11 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Billable services for the cashier (consultations, procedures, packages, panels).
+CREATE TABLE IF NOT EXISTS service_catalog (
+  id TEXT PRIMARY KEY, code TEXT, name TEXT NOT NULL, category TEXT, price REAL DEFAULT 0, department_id TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_enc_patient ON encounters(patient_id);
 CREATE INDEX IF NOT EXISTS idx_enc_status ON encounters(status);
 CREATE INDEX IF NOT EXISTS idx_vitals_enc ON vitals(encounter_id, captured_at);
@@ -275,5 +282,13 @@ CREATE INDEX IF NOT EXISTS idx_msg_thread ON messages(thread_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_appt_staff ON appointments(staff_id, starts_at);
 CREATE INDEX IF NOT EXISTS idx_notif ON notifications(target_role, read, created_at);
 `);
+
+// Backwards-compatible migrations for databases created before a column existed.
+function ensureColumn(table: string, column: string, ddl: string) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
+ensureColumn("staff", "photo_url", "photo_url TEXT");
+ensureColumn("staff", "rating", "rating REAL DEFAULT 4.7");
 
 export default db;

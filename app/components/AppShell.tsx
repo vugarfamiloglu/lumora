@@ -12,6 +12,7 @@ export interface NavGroup { group: string; items: NavItem[]; }
 const NAV: NavGroup[] = [
   { group: "Clinical", items: [
     { to: "/dashboard", label: "Dashboard", icon: "dashboard", cap: "view_dashboard" },
+    { to: "/workspace", label: "My Workspace", icon: "stethoscope", cap: "order_clinical", countKey: "myResults" },
     { to: "/emergency", label: "Emergency", icon: "emergency", cap: "view_ed", countKey: "edRed" },
     { to: "/icu", label: "Critical Care", icon: "activity", cap: "view_icu", countKey: "icu" },
     { to: "/patients", label: "Patients", icon: "patients", cap: "view_patients" },
@@ -32,7 +33,8 @@ const NAV: NavGroup[] = [
     { to: "/departments", label: "Departments", icon: "departments", cap: "view_departments" },
   ]},
   { group: "Administration", items: [
-    { to: "/billing", label: "Billing", icon: "receipt", cap: "view_billing" },
+    { to: "/cashier", label: "Cashier", icon: "receipt", cap: "manage_billing" },
+    { to: "/billing", label: "Billing", icon: "file", cap: "view_billing" },
     { to: "/settings", label: "Settings", icon: "settings", cap: "manage_settings" },
     { to: "/audit", label: "Activity Log", icon: "audit", cap: "view_audit" },
   ]},
@@ -173,7 +175,7 @@ export function AppShell({ staff, hospital, caps, counts, notifications, childre
           </div>
           <button className="icon-btn" onClick={toggleTheme} aria-label="Theme"><Icon name={theme === "dark" ? "sun" : "moon"} size={17} /></button>
           <div className="user">
-            <Avatar name={staff.fullName} color={staff.photoColor} size={34} />
+            <Avatar name={staff.fullName} color={staff.photoColor} src={staff.photoUrl} size={34} />
             <div className="user-text"><b>{staff.fullName}</b><span>{staff.title ?? staff.role}</span></div>
             <button className="icon-btn plain" onClick={() => setLogoutOpen(true)} aria-label="Sign out" title="Sign out"><Icon name="logout" size={17} /></button>
           </div>
