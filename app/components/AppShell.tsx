@@ -11,7 +11,7 @@ export interface NavGroup { group: string; items: NavItem[]; }
 
 const NAV: NavGroup[] = [
   { group: "Clinical", items: [
-    { to: "/dashboard", label: "Dashboard", icon: "dashboard", cap: "view_dashboard" },
+    { to: "/dashboard", label: "Command Center", icon: "dashboard", cap: "view_command_dashboard" },
     { to: "/workspace", label: "My Workspace", icon: "stethoscope", cap: "order_clinical", countKey: "myResults" },
     { to: "/emergency", label: "Emergency", icon: "emergency", cap: "view_ed", countKey: "edRed" },
     { to: "/icu", label: "Critical Care", icon: "activity", cap: "view_icu", countKey: "icu" },

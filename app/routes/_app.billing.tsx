@@ -46,7 +46,7 @@ export default function Billing() {
 
   const cols: Column<any>[] = [
     { key: "number", header: "Invoice", width: 130, render: (i) => <span className="mono" style={{ fontWeight: 600 }}>{i.number}</span> },
-    { key: "patient", header: "Patient", width: 190, render: (i) => <Link to={`/patients/${i.pid}`} style={{ color: "rgb(var(--primary))" }}>{i.patient}</Link> },
+    { key: "patient", header: "Patient", width: 190, render: (i) => <span>{i.patient}</span> },
     { key: "total", header: "Total", width: 110, align: "right", mono: true, render: (i) => money(i.total) },
     { key: "paid", header: "Paid", width: 110, align: "right", mono: true, render: (i) => money(i.paid) },
     { key: "payer", header: "Payer", width: 110, render: (i) => <span className="tag">{i.payer_type}</span> },

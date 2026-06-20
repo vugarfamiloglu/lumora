@@ -18,11 +18,24 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const staff = await requireCap(request, "view_patients");
   const q = new URL(request.url).searchParams.get("q")?.trim() ?? "";
   const like = `%${q}%`;
+  // A physician sees only patients they're responsible for (attending, referred to them,
+  // or for whom they ordered tests). Admin / department head / reception / nurse see all.
+  const scoped = staff.role === "doctor";
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (q) { where.push("(p.full_name LIKE ? OR p.mrn LIKE ?)"); params.push(like, like); }
+  if (scoped) {
+    where.push(`p.id IN (
+      SELECT patient_id FROM encounters WHERE attending_id=?
+      UNION SELECT patient_id FROM referrals WHERE to_staff_id=?
+      UNION SELECT e.patient_id FROM orders o JOIN encounters e ON e.id=o.encounter_id WHERE o.ordered_by=?)`);
+    params.push(staff.id, staff.id, staff.id);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const rows = db.prepare(`SELECT p.*, (SELECT MAX(created_at) FROM encounters WHERE patient_id=p.id) AS last_visit,
       (SELECT status FROM encounters WHERE patient_id=p.id AND status IN ('admitted','in_progress','open') ORDER BY created_at DESC LIMIT 1) AS active
-    FROM patients p ${q ? "WHERE p.full_name LIKE ? OR p.mrn LIKE ?" : ""} ORDER BY p.created_at DESC LIMIT 200`)
-    .all(...(q ? [like, like] : [])) as any[];
-  return json({ patients: rows, q, canEdit: can(staff.role, "edit_patients") });
+    FROM patients p ${whereSql} ORDER BY p.created_at DESC LIMIT 200`).all(...params) as any[];
+  return json({ patients: rows, q, scoped, canEdit: can(staff.role, "edit_patients") });
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -40,7 +53,7 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function Patients() {
-  const { patients, q, canEdit } = useLoaderData<typeof loader>();
+  const { patients, q, scoped, canEdit } = useLoaderData<typeof loader>();
   const nav = useNavigate();
   const search = useFetcher();
   const [open, setOpen] = useState(false);
@@ -56,7 +69,8 @@ export default function Patients() {
 
   return (
     <div className="stack">
-      <PageHeader title="Patient Registry" sub="Master patient index — search, register and open the electronic medical record."
+      <PageHeader title={scoped ? "My Patients" : "Patient Registry"}
+        sub={scoped ? "Patients under your care — those you attend, were referred to you, or for whom you ordered tests." : "Master patient index — search, register and open the electronic medical record."}
         action={canEdit && <Button variant="primary" icon="plus" onClick={() => setOpen(true)}>Register patient</Button>} />
       <Card>
         <div className="card-body">

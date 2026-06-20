@@ -2,6 +2,7 @@ import { json, redirect, type ActionFunctionArgs, type LoaderFunctionArgs, type 
 import { Form, useActionData, useNavigation, useSearchParams } from "@remix-run/react";
 import { useState } from "react";
 import { getStaff, login, createUserSession } from "~/lib/session.server";
+import { homePath } from "~/lib/rbac.server";
 import { hospitalSettings } from "~/lib/settings.server";
 import { Icon } from "~/components/Icon";
 import authStyles from "~/styles/auth.css?url";
@@ -18,10 +19,11 @@ export async function action({ request }: ActionFunctionArgs) {
   const form = await request.formData();
   const email = String(form.get("email") ?? "");
   const password = String(form.get("password") ?? "");
-  const next = String(form.get("next") ?? "/dashboard");
+  const next = String(form.get("next") ?? "");
   const staff = await login(email, password);
   if (!staff) return json({ error: "Invalid email or password." }, { status: 401 });
-  return createUserSession(staff.id, next.startsWith("/") ? next : "/dashboard");
+  const dest = next.startsWith("/") && next !== "/dashboard" && next !== "/" ? next : homePath(staff.role);
+  return createUserSession(staff.id, dest);
 }
 
 const FEATURES = [
@@ -60,7 +62,7 @@ export default function Login() {
           <h2>Sign in</h2>
           <p className="auth-sub">Access the clinical workspace.</p>
           {data?.error && <div className="auth-err"><Icon name="alert" size={15} />{data.error}</div>}
-          <input type="hidden" name="next" value={params.get("next") ?? "/dashboard"} />
+          <input type="hidden" name="next" value={params.get("next") ?? ""} />
           <div className="field">
             <label>Work email</label>
             <input type="email" name="email" defaultValue="admin@lumora.health" autoComplete="username" required />

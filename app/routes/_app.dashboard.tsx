@@ -1,7 +1,8 @@
-import { json, type LoaderFunctionArgs, type MetaFunction } from "@remix-run/node";
+import { json, redirect, type LoaderFunctionArgs, type MetaFunction } from "@remix-run/node";
 import { Link, useLoaderData } from "@remix-run/react";
 import db from "~/lib/db.server";
 import { requireStaff } from "~/lib/session.server";
+import { can, homePath } from "~/lib/rbac.server";
 import { Card, CardHead, Kpi, Badge, EmptyState } from "~/components/ui";
 import { Icon } from "~/components/Icon";
 import { TrendArea, MiniBars, Donut } from "~/components/Charts";
@@ -15,6 +16,8 @@ const cnt = (sql: string, ...p: unknown[]) => one(sql, ...p).c as number;
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const staff = await requireStaff(request);
+  // Only administrators and department heads see the hospital-wide command center.
+  if (!can(staff.role, "view_command_dashboard")) throw redirect(homePath(staff.role));
 
   const inHouse = cnt("SELECT COUNT(*) c FROM encounters WHERE status='admitted'");
   const edCensus = cnt(`SELECT COUNT(*) c FROM encounters e JOIN departments d ON d.id=e.department_id WHERE d.kind='ed' AND e.status IN ('open','in_progress')`);

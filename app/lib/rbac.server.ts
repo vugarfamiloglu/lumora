@@ -3,7 +3,7 @@ export type Role =
   | "pharmacy" | "reception" | "billing" | "department_head";
 
 export type Capability =
-  | "view_dashboard" | "view_patients" | "edit_patients" | "view_emr" | "edit_emr"
+  | "view_dashboard" | "view_command_dashboard" | "view_patients" | "edit_patients" | "view_emr" | "edit_emr"
   | "order_clinical" | "view_ed" | "manage_ed" | "view_icu" | "edit_vitals"
   | "view_ot" | "manage_ot" | "view_lab" | "result_lab" | "view_radiology" | "report_radiology"
   | "view_pharmacy" | "dispense_pharmacy" | "view_referrals" | "manage_referrals"
@@ -11,7 +11,7 @@ export type Capability =
   | "view_staff" | "manage_staff" | "view_departments" | "manage_settings" | "view_audit";
 
 const ALL: Capability[] = [
-  "view_dashboard", "view_patients", "edit_patients", "view_emr", "edit_emr",
+  "view_dashboard", "view_command_dashboard", "view_patients", "edit_patients", "view_emr", "edit_emr",
   "order_clinical", "view_ed", "manage_ed", "view_icu", "edit_vitals",
   "view_ot", "manage_ot", "view_lab", "result_lab", "view_radiology", "report_radiology",
   "view_pharmacy", "dispense_pharmacy", "view_referrals", "manage_referrals",
@@ -37,11 +37,27 @@ export const MATRIX: Record<Role, Capability[]> = {
   pharmacy: ["view_dashboard", "view_patients", "view_pharmacy", "dispense_pharmacy", "message"],
   reception: ["view_dashboard", "view_patients", "edit_patients", "view_appointments", "manage_appointments",
     "view_ed", "manage_ed", "view_departments", "view_staff", "message"],
-  billing: ["view_dashboard", "view_patients", "view_billing", "manage_billing", "view_departments", "message"],
+  billing: ["view_billing", "manage_billing"],
 };
 
 export function can(role: string | undefined, cap: Capability): boolean {
   return !!role && (MATRIX[role as Role] ?? []).includes(cap);
+}
+
+// Each role lands on its own home interface after login.
+export function homePath(role: string): string {
+  switch (role) {
+    case "super_admin":
+    case "department_head": return "/dashboard";
+    case "doctor": return "/workspace";
+    case "lab": return "/lab";
+    case "radiology": return "/radiology";
+    case "pharmacy": return "/pharmacy";
+    case "billing": return "/cashier";
+    case "nurse":
+    case "reception":
+    default: return "/patients";
+  }
 }
 
 export const ROLE_LABEL: Record<Role, string> = {

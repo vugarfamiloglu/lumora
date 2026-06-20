@@ -18,6 +18,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const staff = await requireCap(request, "view_emr");
   const p = db.prepare("SELECT * FROM patients WHERE id=?").get(params.id) as any;
   if (!p) throw new Response("Not found", { status: 404 });
+  // A physician may only open records of patients they are responsible for.
+  if (staff.role === "doctor") {
+    const related = db.prepare(`SELECT 1 FROM encounters WHERE patient_id=? AND attending_id=?
+      UNION SELECT 1 FROM referrals WHERE patient_id=? AND to_staff_id=?
+      UNION SELECT 1 FROM orders o JOIN encounters e ON e.id=o.encounter_id WHERE e.patient_id=? AND o.ordered_by=?
+      UNION SELECT 1 FROM appointments WHERE patient_id=? AND staff_id=? LIMIT 1`).get(p.id, staff.id, p.id, staff.id, p.id, staff.id, p.id, staff.id);
+    if (!related) throw new Response("You can only access records of your own patients.", { status: 403 });
+  }
   const encs = db.prepare(`SELECT e.*, d.name AS dept, st.full_name AS attending FROM encounters e
     LEFT JOIN departments d ON d.id=e.department_id LEFT JOIN staff st ON st.id=e.attending_id
     WHERE e.patient_id=? ORDER BY e.created_at DESC`).all(p.id) as any[];

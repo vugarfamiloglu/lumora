@@ -1,8 +1,11 @@
-import { json, type LoaderFunctionArgs, type MetaFunction } from "@remix-run/node";
-import { Link, useLoaderData, useSearchParams } from "@remix-run/react";
+import { json, redirect, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "@remix-run/node";
+import { Form, Link, useLoaderData, useSearchParams } from "@remix-run/react";
+import { useState } from "react";
 import db from "~/lib/db.server";
-import { requireStaff } from "~/lib/session.server";
-import { Card, CardHead, Badge, Avatar, EmptyState, Stars } from "~/components/ui";
+import { requireStaff, requireCap, hashPassword } from "~/lib/session.server";
+import { can } from "~/lib/rbac.server";
+import { writeAudit } from "~/lib/audit.server";
+import { Card, CardHead, Badge, Avatar, EmptyState, Stars, Button, Modal, Field } from "~/components/ui";
 import { Icon } from "~/components/Icon";
 import { jsonArr, dateShort, dateTime, money, STATUS_BADGE } from "~/lib/format";
 
@@ -13,9 +16,11 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const hm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireStaff(request);
+  const me = await requireStaff(request);
   const s = db.prepare(`SELECT st.*, d.name AS dept, d.kind AS dept_kind FROM staff st LEFT JOIN departments d ON d.id=st.department_id WHERE st.id=?`).get(params.id) as any;
   if (!s) throw new Response("Not found", { status: 404 });
+  const departments = db.prepare("SELECT id, name FROM departments WHERE active=1 ORDER BY name").all() as any[];
+  const canManage = can(me.role, "manage_staff");
   const schedules = db.prepare("SELECT * FROM schedules WHERE staff_id=? ORDER BY weekday, start_min").all(s.id) as any[];
   const patients = db.prepare(`SELECT e.id, e.chief_complaint, e.type, e.status, e.created_at, p.full_name, p.id AS pid
     FROM encounters e JOIN patients p ON p.id=e.patient_id WHERE e.attending_id=? ORDER BY e.created_at DESC LIMIT 12`).all(s.id) as any[];
@@ -25,7 +30,25 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     appointments: (db.prepare("SELECT COUNT(*) c FROM appointments WHERE staff_id=? AND status IN ('booked','arrived')").get(s.id) as any).c,
     referrals: (db.prepare("SELECT COUNT(*) c FROM referrals WHERE to_staff_id=?").get(s.id) as any).c,
   };
-  return json({ s, schedules, patients, stats });
+  return json({ s, schedules, patients, stats, departments, canManage });
+}
+
+export async function action({ request, params }: ActionFunctionArgs) {
+  const me = await requireCap(request, "manage_staff");
+  const f = await request.formData();
+  const cur = db.prepare("SELECT * FROM staff WHERE id=?").get(params.id) as any;
+  if (!cur) throw new Response("Not found", { status: 404 });
+  const langs = String(f.get("languages") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  db.prepare(`UPDATE staff SET full_name=?, role=?, title=?, department_id=?, specialty=?, subspecialty=?, phone=?, gender=?,
+      license_no=?, consult_fee=?, room=?, languages=?, bio=?, rating=?, status=? ${f.get("password") ? ", password_hash=?" : ""} WHERE id=?`)
+    .run(String(f.get("full_name") || cur.full_name), String(f.get("role") || cur.role), String(f.get("title") || ""),
+      String(f.get("department_id") || "") || null, String(f.get("specialty") || ""), String(f.get("subspecialty") || ""),
+      String(f.get("phone") || ""), String(f.get("gender") || cur.gender), String(f.get("license_no") || "") || null,
+      Number(f.get("consult_fee")) || 0, String(f.get("room") || ""), JSON.stringify(langs.length ? langs : ["English"]),
+      String(f.get("bio") || ""), Number(f.get("rating")) || cur.rating, String(f.get("status") || "active"),
+      ...(f.get("password") ? [hashPassword(String(f.get("password")))] : []), params.id);
+  writeAudit(me, "staff.update", "staff", String(params.id), String(f.get("full_name") || cur.full_name));
+  return redirect(`/staff/${params.id}`);
 }
 
 const TABS = [
@@ -37,9 +60,10 @@ const TABS = [
 ];
 
 export default function StaffProfile() {
-  const { s, schedules, patients, stats } = useLoaderData<typeof loader>();
+  const { s, schedules, patients, stats, departments, canManage } = useLoaderData<typeof loader>();
   const [params] = useSearchParams();
   const tab = params.get("tab") ?? "overview";
+  const [editOpen, setEditOpen] = useState(false);
   const quals = jsonArr<{ degree: string; institution: string; year: number }>(s.qualifications);
   const exp = jsonArr<{ role: string; place: string; from: string; to: string }>(s.experience);
   const langs = jsonArr<string>(s.languages);
@@ -59,8 +83,9 @@ export default function StaffProfile() {
               {langs.length > 0 && <span><Icon name="messages" size={12} /> {langs.join(", ")}</span>}
             </div>
           </div>
-          <div className="right">
-            {s.consult_fee > 0 && <><div className="kpi-value">{money(s.consult_fee)}</div><span className="dim">consultation</span></>}
+          <div className="right" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+            {canManage && <Button icon="edit" onClick={() => setEditOpen(true)}>Edit profile</Button>}
+            {s.consult_fee > 0 && <div><div className="kpi-value">{money(s.consult_fee)}</div><span className="dim">consultation</span></div>}
           </div>
         </div>
         <div className="profile-stats">
@@ -142,6 +167,39 @@ export default function StaffProfile() {
           </div>
         )}
       </Card>
+
+      {editOpen && <EditStaff s={s} departments={departments} onClose={() => setEditOpen(false)} />}
     </div>
+  );
+}
+
+const EDIT_ROLES = ["doctor", "department_head", "nurse", "lab", "radiology", "pharmacy", "reception", "billing", "super_admin"];
+
+function EditStaff({ s, departments, onClose }: { s: any; departments: any[]; onClose: () => void }) {
+  const langs = jsonArr<string>(s.languages).join(", ");
+  return (
+    <Modal title={`Edit · ${s.full_name}`} onClose={onClose} wide
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" form="editstaff" type="submit">Save changes</Button></>}>
+      <Form id="editstaff" method="post">
+        <div className="form-grid">
+          <Field label="Full name" required><input name="full_name" defaultValue={s.full_name} required /></Field>
+          <Field label="Role"><select name="role" defaultValue={s.role}>{EDIT_ROLES.map((r) => <option key={r} value={r}>{r.replace("_", " ")}</option>)}</select></Field>
+          <Field label="Title"><input name="title" defaultValue={s.title ?? ""} /></Field>
+          <Field label="Department"><select name="department_id" defaultValue={s.department_id ?? ""}><option value="">—</option>{departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></Field>
+          <Field label="Specialty"><input name="specialty" defaultValue={s.specialty ?? ""} /></Field>
+          <Field label="Subspecialty"><input name="subspecialty" defaultValue={s.subspecialty ?? ""} /></Field>
+          <Field label="Phone"><input name="phone" defaultValue={s.phone ?? ""} /></Field>
+          <Field label="Gender"><select name="gender" defaultValue={s.gender ?? "male"}><option value="male">Male</option><option value="female">Female</option></select></Field>
+          <Field label="License no."><input name="license_no" defaultValue={s.license_no ?? ""} /></Field>
+          <Field label="Consultation fee"><input type="number" name="consult_fee" defaultValue={s.consult_fee ?? 0} /></Field>
+          <Field label="Room"><input name="room" defaultValue={s.room ?? ""} /></Field>
+          <Field label="Rating"><input type="number" step="0.1" min="0" max="5" name="rating" defaultValue={s.rating ?? 4.7} /></Field>
+          <Field label="Status"><select name="status" defaultValue={s.status ?? "active"}><option value="active">Active</option><option value="inactive">Inactive</option></select></Field>
+          <Field label="Reset password" hint="Leave blank to keep"><input name="password" placeholder="••••••••" /></Field>
+        </div>
+        <Field label="Languages" hint="Comma-separated"><input name="languages" defaultValue={langs} /></Field>
+        <Field label="Biography"><textarea name="bio" rows={3} defaultValue={s.bio ?? ""} /></Field>
+      </Form>
+    </Modal>
   );
 }
