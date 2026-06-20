@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Form, NavLink, useFetcher, useMatches } from "@remix-run/react";
 import { Icon } from "./Icon";
-import { Avatar, Modal, Button } from "./ui";
+import { Avatar, Modal, Button, Field } from "./ui";
 import { useConnected, useLive } from "./Live";
 import { relTime } from "~/lib/format";
 import type { Staff } from "~/lib/session.server";
@@ -98,6 +98,9 @@ export function AppShell({ staff, hospital, caps, counts, notifications, childre
   }, [q]);
 
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
+  const pwFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  useEffect(() => { if (pwFetcher.data?.ok) setPwOpen(false); }, [pwFetcher.data]);
 
   const groups = useMemo(() => NAV.map((g) => ({ ...g, items: g.items.filter((i) => can(i.cap)) })).filter((g) => g.items.length), [caps]);
 
@@ -177,6 +180,7 @@ export function AppShell({ staff, hospital, caps, counts, notifications, childre
           <div className="user">
             <Avatar name={staff.fullName} color={staff.photoColor} src={staff.photoUrl} size={34} />
             <div className="user-text"><b>{staff.fullName}</b><span>{staff.title ?? staff.role}</span></div>
+            <button className="icon-btn plain" onClick={() => setPwOpen(true)} aria-label="Change password" title="Change password"><Icon name="key" size={17} /></button>
             <button className="icon-btn plain" onClick={() => setLogoutOpen(true)} aria-label="Sign out" title="Sign out"><Icon name="logout" size={17} /></button>
           </div>
         </div>
@@ -191,6 +195,30 @@ export function AppShell({ staff, hospital, caps, counts, notifications, childre
             <Form method="post" action="/logout"><Button variant="danger" type="submit">Sign out</Button></Form>
           </>}>
           <p className="muted">You'll need to sign in again to access the clinical workspace.</p>
+        </Modal>
+      )}
+
+      {pwOpen && (
+        <Modal title="Change my password" onClose={() => setPwOpen(false)}
+          footer={<>
+            <Button variant="ghost" onClick={() => setPwOpen(false)}>Cancel</Button>
+            <Button variant="primary" form="pwform" type="submit" disabled={pwFetcher.state !== "idle"}>
+              {pwFetcher.state !== "idle" ? "Updating…" : "Update password"}
+            </Button>
+          </>}>
+          <pwFetcher.Form id="pwform" method="post" action="/account/password">
+            <p className="muted" style={{ marginTop: 0 }}>Update the password the administrator gave you. This only changes your own account.</p>
+            {pwFetcher.data?.error && <p className="form-error">{pwFetcher.data.error}</p>}
+            <Field label="Current password" required>
+              <input type="password" name="current" autoComplete="current-password" required />
+            </Field>
+            <Field label="New password" required hint="At least 6 characters.">
+              <input type="password" name="password" autoComplete="new-password" minLength={6} required />
+            </Field>
+            <Field label="Confirm new password" required>
+              <input type="password" name="confirm" autoComplete="new-password" minLength={6} required />
+            </Field>
+          </pwFetcher.Form>
         </Modal>
       )}
     </div>

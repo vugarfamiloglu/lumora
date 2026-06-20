@@ -1,6 +1,6 @@
-import { json, redirect, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "@remix-run/node";
-import { Link, useLoaderData, useSearchParams, Form } from "@remix-run/react";
-import { useState } from "react";
+import { json, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "@remix-run/node";
+import { Link, useLoaderData, useSearchParams, useFetcher } from "@remix-run/react";
+import { useEffect, useState } from "react";
 import db from "~/lib/db.server";
 import { requireStaff, requireCap, hashPassword } from "~/lib/session.server";
 import { can } from "~/lib/rbac.server";
@@ -45,16 +45,17 @@ export async function action({ request }: ActionFunctionArgs) {
   if (!name || !email) return json({ error: "Name and email are required." }, { status: 400 });
   if (db.prepare("SELECT 1 FROM staff WHERE email=?").get(email)) return json({ error: "Email already in use." }, { status: 400 });
   const id = newId();
+  const tempPassword = String(f.get("password") || "Lumora2026!");
   db.prepare(`INSERT INTO staff (id, staff_no, email, password_hash, full_name, role, title, department_id, specialty, subspecialty, phone, gender,
       photo_color, photo_url, rating, license_no, consult_fee, room, languages, bio)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-    id, staffNo(), email, hashPassword(String(f.get("password") || "Lumora2026!")), name, String(f.get("role") || "doctor"),
+    id, staffNo(), email, hashPassword(tempPassword), name, String(f.get("role") || "doctor"),
     String(f.get("title") || ""), String(f.get("department_id") || "") || null, String(f.get("specialty") || ""), String(f.get("subspecialty") || ""),
     String(f.get("phone") || ""), String(f.get("gender") || "male"), "#6366f1", avatar(name + id.slice(-3)), 4.7,
     String(f.get("license_no") || "") || null, Number(f.get("consult_fee")) || 0, String(f.get("room") || ""),
     JSON.stringify(String(f.get("languages") || "English").split(",").map((s) => s.trim()).filter(Boolean)), String(f.get("bio") || ""));
   writeAudit(me, "staff.create", "staff", id, `${name} (${f.get("role")})`);
-  return redirect(`/staff/${id}`);
+  return json({ created: { id, name, email, password: tempPassword } });
 }
 
 const ROLE_PILLS = [
@@ -123,16 +124,45 @@ function DocCard({ s }: { s: any }) {
 
 const ROLES = ["doctor", "nurse", "lab", "radiology", "pharmacy", "reception", "billing", "department_head"];
 
+function suggestEmail(name: string): string {
+  const clean = name.replace(/^(Dr\.?|Prof\.?|RN)\s+/i, "").trim().toLowerCase().replace(/[^a-z\s]/g, "");
+  const parts = clean.split(/\s+/).filter(Boolean);
+  return parts.length ? `${parts.join(".")}@lumora.health` : "";
+}
+function genPassword(): string {
+  const w = ["Calm", "Bright", "Swift", "Noble", "Vital", "Prime", "Clear", "Sterling"];
+  const n = Math.floor(1000 + Math.random() * 9000);
+  const sym = "!@#$%"[Math.floor(Math.random() * 5)];
+  return `${w[Math.floor(Math.random() * w.length)]}${n}${sym}`;
+}
+
 function AddStaff({ departments, onClose }: { departments: any[]; onClose: () => void }) {
+  const fetcher = useFetcher<{ created?: { id: string; name: string; email: string; password: string }; error?: string }>();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [pw, setPw] = useState(() => genPassword());
+  useEffect(() => { if (!emailTouched) setEmail(suggestEmail(name)); }, [name, emailTouched]);
+
+  const created = fetcher.data?.created;
+  if (created) return <CredentialsCard created={created} onClose={onClose} />;
+  const busy = fetcher.state !== "idle";
+
   return (
     <Modal title="Add staff member" onClose={onClose} wide
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" form="addstaff" type="submit">Create account</Button></>}>
-      <Form id="addstaff" method="post">
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" form="addstaff" type="submit" disabled={busy}>{busy ? "Creating…" : "Create account"}</Button></>}>
+      <fetcher.Form id="addstaff" method="post">
+        {fetcher.data?.error && <div className="auth-err" style={{ marginBottom: 12 }}><Icon name="alert" size={15} />{fetcher.data.error}</div>}
         <div className="form-grid">
-          <Field label="Full name" required><input name="full_name" required autoFocus placeholder="Dr. Jane Doe" /></Field>
+          <Field label="Full name" required><input name="full_name" required autoFocus placeholder="Dr. Jane Doe" value={name} onChange={(e) => setName(e.target.value)} /></Field>
           <Field label="Role"><select name="role">{ROLES.map((r) => <option key={r} value={r}>{r.replace("_", " ")}</option>)}</select></Field>
-          <Field label="Work email" required><input type="email" name="email" required /></Field>
-          <Field label="Temp password" hint="Default: Lumora2026!"><input name="password" placeholder="Lumora2026!" /></Field>
+          <Field label="Work email (login)" required><input type="email" name="email" required value={email} onChange={(e) => { setEmail(e.target.value); setEmailTouched(true); }} /></Field>
+          <Field label="Temporary password" hint="Given to the employee for first sign-in">
+            <div className="cluster" style={{ gap: 6 }}>
+              <input name="password" value={pw} onChange={(e) => setPw(e.target.value)} style={{ flex: 1 }} />
+              <Button type="button" size="sm" icon="activity" onClick={() => setPw(genPassword())}>New</Button>
+            </div>
+          </Field>
           <Field label="Department"><select name="department_id"><option value="">—</option>{departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></Field>
           <Field label="Title"><input name="title" placeholder="Consultant / Specialist" /></Field>
           <Field label="Specialty"><input name="specialty" /></Field>
@@ -144,8 +174,27 @@ function AddStaff({ departments, onClose }: { departments: any[]; onClose: () =>
           <Field label="Room"><input name="room" /></Field>
           <Field label="Languages" hint="Comma-separated"><input name="languages" placeholder="English, Azerbaijani" /></Field>
         </div>
-        <Field label="Biography"><textarea name="bio" rows={3} /></Field>
-      </Form>
+        <Field label="Biography"><textarea name="bio" rows={2} /></Field>
+      </fetcher.Form>
+    </Modal>
+  );
+}
+
+function CredentialsCard({ created, onClose }: { created: { id: string; name: string; email: string; password: string }; onClose: () => void }) {
+  const [copied, setCopied] = useState("");
+  const copy = (t: string, k: string) => { navigator.clipboard?.writeText(t); setCopied(k); setTimeout(() => setCopied(""), 1500); };
+  return (
+    <Modal title="Account created" onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Done</Button><Link to={`/staff/${created.id}`} className="btn btn-primary">Open profile</Link></>}>
+      <div className="cluster" style={{ marginBottom: 12 }}><span className="kpi-ico success" style={{ width: 36, height: 36 }}><Icon name="check" size={18} /></span>
+        <div className="spread"><b>{created.name}</b><span className="mut-sm">can now sign in with these credentials.</span></div></div>
+      <p className="mut-sm">Share them securely with the employee. They can change the password from their own account after first sign-in.</p>
+      <Field label="Work email (login)">
+        <div className="cluster" style={{ gap: 6 }}><input readOnly value={created.email} style={{ flex: 1 }} /><Button type="button" size="sm" onClick={() => copy(created.email, "e")}>{copied === "e" ? "Copied" : "Copy"}</Button></div>
+      </Field>
+      <Field label="Temporary password">
+        <div className="cluster" style={{ gap: 6 }}><input readOnly value={created.password} className="mono" style={{ flex: 1 }} /><Button type="button" size="sm" onClick={() => copy(created.password, "p")}>{copied === "p" ? "Copied" : "Copy"}</Button></div>
+      </Field>
     </Modal>
   );
 }

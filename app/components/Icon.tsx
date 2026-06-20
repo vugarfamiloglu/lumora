@@ -47,6 +47,7 @@ const P: Record<string, string> = {
   baby: "M9 12h.01M15 12h.01M10 16a3 3 0 0 0 4 0M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z",
   star: "m12 3 2.6 5.4L20 9.2l-4 4 1 5.8-5-3-5 3 1-5.8-4-4 5.4-.8L12 3Z",
   vial: "M9 3h6M10 3v13a2 2 0 0 0 4 0V3M10 9h4",
+  key: "M14 7a3 3 0 1 1 3 3 3 3 0 0 1-3-3Zm-1.6 1.6L3 18v3h3v-2h2v-2h2l2.4-2.4",
 };
 
 interface IconProps { name: string; size?: number; className?: string; strokeWidth?: number; }

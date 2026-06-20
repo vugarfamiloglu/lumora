@@ -29,7 +29,7 @@ export const MATRIX: Record<Role, Capability[]> = {
   department_head: [...ALL.filter((c) => c !== "manage_settings" && c !== "manage_staff")],
   doctor: [...CLINICAL_COMMON, "edit_patients", "edit_emr", "order_clinical", "view_ed", "manage_ed",
     "view_icu", "edit_vitals", "view_ot", "manage_ot", "view_lab", "view_radiology", "view_pharmacy",
-    "manage_appointments", "view_billing"],
+    "manage_appointments"],
   nurse: [...CLINICAL_COMMON, "edit_emr", "view_ed", "manage_ed", "view_icu", "edit_vitals",
     "view_lab", "view_radiology", "view_pharmacy", "manage_appointments"],
   lab: ["view_dashboard", "view_patients", "view_lab", "result_lab", "message", "view_referrals"],

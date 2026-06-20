@@ -83,6 +83,7 @@ body.col-resizing { cursor: col-resize; user-select: none; }
 .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: rgb(var(--primary)); box-shadow: 0 0 0 3px rgb(var(--primary) / .15); }
 .field textarea { resize: vertical; min-height: 72px; }
 .field .hint { font-size: 11px; color: rgb(var(--faint)); }
+.form-error { display: flex; align-items: center; gap: 8px; padding: 9px var(--s3); border-radius: var(--r-md); background: rgb(var(--danger) / .1); color: rgb(var(--danger)); font-size: 12.5px; font-weight: 500; margin: 0 0 var(--s4); border: 1px solid rgb(var(--danger) / .25); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); }
 .pw-wrap { position: relative; }
 .pw-wrap input { padding-right: 40px; }
